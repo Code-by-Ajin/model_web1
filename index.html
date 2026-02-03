@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,9 +11,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Icons -->
-    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <!-- Leaflet (Maps) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 </head>
+
 <body>
 
     <nav class="navbar">
@@ -29,14 +34,16 @@
     </nav>
 
     <main class="container main-content">
-        
+
         <!-- HOME VIEW -->
         <section id="home-view" class="view active">
             <header class="hero-section">
                 <div class="hero-text">
                     <h1>Make Your City Better, <br>One Report at a Time.</h1>
-                    <p>Spot a pothole? Broken streetlight? Garbage pileup? Report it instantly and track the resolution.</p>
-                    <a href="#report" class="btn btn-primary btn-lg">Report an Issue <i class="ri-arrow-right-line"></i></a>
+                    <p>Spot a pothole? Broken streetlight? Garbage pileup? Report it instantly and track the resolution.
+                    </p>
+                    <a href="#report" class="btn btn-primary btn-lg">Report an Issue <i
+                            class="ri-arrow-right-line"></i></a>
                 </div>
                 <div class="hero-stats">
                     <div class="stat-card">
@@ -87,12 +94,13 @@
 
                     <div class="form-group">
                         <label for="issue-location">Location</label>
-                        <div class="location-input-wrapper">
-                            <input type="text" id="issue-location" placeholder="e.g., Main St & 5th Ave" required>
-                            <button type="button" id="get-location-btn" title="Use Current Location">
-                                <i class="ri-gps-fill"></i>
-                            </button>
-                        </div>
+                        <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:0.5rem;">Click on the map to
+                            pin the location.</p>
+                        <div id="map-picker" style="height: 300px; width:100%; border-radius:12px; z-index: 1;"></div>
+                        <input type="hidden" id="issue-lat">
+                        <input type="hidden" id="issue-lng">
+                        <input type="text" id="issue-location" placeholder="Address (Auto-filled or type manually)"
+                            required style="margin-top:10px;">
                     </div>
 
                     <div class="form-group">
@@ -127,7 +135,7 @@
                     <h2>Admin Access</h2>
                     <p>Enter password to manage issues.</p>
                     <form id="admin-login-form">
-                        <input type="password" id="admin-password" placeholder="Password" required>
+                        <input type="password" id="admin-password" placeholder="Password (admin123)" required>
                         <button type="submit" class="btn btn-primary btn-block">Login</button>
                     </form>
                 </div>
@@ -138,7 +146,7 @@
                     <h2>Admin Dashboard</h2>
                     <button id="admin-logout" class="btn btn-outline-danger">Logout</button>
                 </header>
-                
+
                 <div class="admin-table-wrapper">
                     <table class="admin-table">
                         <thead>
@@ -165,4 +173,5 @@
 
     <script src="app.js"></script>
 </body>
+
 </html>
