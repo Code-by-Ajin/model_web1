@@ -1,13 +1,18 @@
+// Config - Change to actual IP if needed, but relative path works if served by Flask
+const API_URL = '/api/issues';
+
 // State Management
 const STATE = {
-    issues: JSON.parse(localStorage.getItem('cityFix_issues')) || [],
+    issues: [], // Now populated from API
     isAdmin: false,
     filter: 'all'
 };
 
+// Map Variables
+let map = null;
+let marker = null;
+
 // Utils
-const saveIssues = () => localStorage.setItem('cityFix_issues', JSON.stringify(STATE.issues));
-const generateId = () => '_' + Math.random().toString(36).substr(2, 9);
 const formatDate = (dateString) => new Date(dateString).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
 // DOM Elements
@@ -18,6 +23,25 @@ const totalIssuesEl = document.getElementById('total-issues');
 const solvedIssuesEl = document.getElementById('solved-issues');
 const reportForm = document.getElementById('report-form');
 const filterBtns = document.querySelectorAll('.filter-btn');
+
+// --- INITIALIZATION ---
+
+async function init() {
+    await fetchIssues();
+    initMap();
+    router();
+}
+
+async function fetchIssues() {
+    try {
+        const res = await fetch(API_URL);
+        STATE.issues = await res.json();
+        renderHome();
+    } catch (e) {
+        showToast('Error connecting to server', 'danger');
+        console.error(e);
+    }
+}
 
 // Router
 const router = () => {
@@ -38,12 +62,17 @@ const router = () => {
     });
 
     // Refresh Data based on view
-    if (target === 'home') renderHome();
+    if (target === 'home') fetchIssues(); // Validate fresh data
     if (target === 'admin') renderAdmin();
+
+    // Fix map rendering issues when unhidden
+    if (target === 'report' && map) {
+        setTimeout(() => map.invalidateSize(), 200);
+    }
 };
 
 window.addEventListener('hashchange', router);
-window.addEventListener('load', router);
+window.addEventListener('load', init);
 
 // Notifications
 function showToast(message, type = 'info') {
@@ -58,6 +87,49 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.remove(), 3000);
 }
 
+// --- MAP LOGIC ---
+
+function initMap() {
+    // Default: New York (or any city). We'll try to get user location.
+    const defaultCoords = [40.7128, -74.0060];
+
+    map = L.map('map-picker').setView(defaultCoords, 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Click to pin
+    map.on('click', function (e) {
+        const lat = e.latlng.lat;
+        const lng = e.latlng.lng;
+
+        if (marker) map.removeLayer(marker);
+        marker = L.marker([lat, lng]).addTo(map);
+
+        document.getElementById('issue-lat').value = lat;
+        document.getElementById('issue-lng').value = lng;
+
+        // Reverse Geocode (Optional polish)
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('issue-location').value = data.display_name.split(',')[0];
+            })
+            .catch(() => {
+                document.getElementById('issue-location').value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            });
+    });
+
+    // Try GeoLocation
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+            const { latitude, longitude } = pos.coords;
+            map.setView([latitude, longitude], 15);
+        });
+    }
+}
+
 // --- HOME / FEED LOGIC ---
 
 function renderHome() {
@@ -66,8 +138,8 @@ function renderHome() {
     solvedIssuesEl.textContent = STATE.issues.filter(i => i.status === 'solved').length;
 
     // Filter Logic
-    const filteredIssues = STATE.filter === 'all' 
-        ? STATE.issues 
+    const filteredIssues = STATE.filter === 'all'
+        ? STATE.issues
         : STATE.issues.filter(i => i.status === STATE.filter);
 
     // Render Grid
@@ -78,7 +150,8 @@ function renderHome() {
                 <span class="status-badge status-${issue.status.replace(' ', '-')}">${issue.status}</span>
                 <h3 class="card-title">${issue.type}</h3>
                 <div class="card-info">
-                    <i class="ri-map-pin-line"></i> ${issue.location}
+                    <i class="ri-map-pin-line"></i> ${issue.location} 
+                    ${issue.lat ? `<a href="https://www.google.com/maps?q=${issue.lat},${issue.lng}" target="_blank" style="color:var(--primary); font-size:0.8em; margin-left:5px;"><i class="ri-external-link-line"></i> View Map</a>` : ''}
                 </div>
                 <div class="card-info">
                     <i class="ri-calendar-line"></i> ${formatDate(issue.date)}
@@ -106,53 +179,52 @@ let currentImageBase64 = null;
 const imageInput = document.getElementById('issue-image');
 const fileNameDisplay = document.getElementById('file-name-display');
 
-imageInput.addEventListener('change', function() {
+imageInput.addEventListener('change', function () {
     if (this.files && this.files[0]) {
         const file = this.files[0];
         fileNameDisplay.textContent = file.name;
-        
+
         const reader = new FileReader();
         reader.onload = (e) => currentImageBase64 = e.target.result;
         reader.readAsDataURL(file);
     }
 });
 
-// Location Mock
-document.getElementById('get-location-btn').addEventListener('click', () => {
-    const btn = document.getElementById('get-location-btn');
-    btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
-    // Mocking delay for realism
-    setTimeout(() => {
-        document.getElementById('issue-location').value = "123 Campus Drive, Innovation City";
-        btn.innerHTML = '<i class="ri-gps-fill"></i>';
-        showToast('Location detected successfully', 'success');
-    }, 1000);
-});
-
 // Form Submit
-reportForm.addEventListener('submit', (e) => {
+reportForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    
+
     const newIssue = {
-        id: generateId(),
         type: document.getElementById('issue-type').value,
         location: document.getElementById('issue-location').value,
+        lat: document.getElementById('issue-lat').value,
+        lng: document.getElementById('issue-lng').value,
         description: document.getElementById('issue-desc').value,
         image: currentImageBase64,
-        date: new Date().toISOString(),
-        status: 'pending'
+        date: new Date().toISOString()
     };
 
-    STATE.issues.unshift(newIssue); // Add to top
-    saveIssues();
-    
-    showToast('Issue reported successfully!', 'success');
-    reportForm.reset();
-    currentImageBase64 = null;
-    fileNameDisplay.textContent = "No file selected";
-    
-    // Redirect to home after short delay
-    setTimeout(() => window.location.hash = '#home', 1000);
+    try {
+        const res = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newIssue)
+        });
+
+        if (res.ok) {
+            showToast('Issue reported successfully!', 'success');
+            reportForm.reset();
+            currentImageBase64 = null;
+            marker = null;
+            fileNameDisplay.textContent = "No file selected";
+            setTimeout(() => window.location.hash = '#home', 1000);
+        } else {
+            showToast('Failed to submit report', 'danger');
+        }
+    } catch (err) {
+        showToast('Server error', 'danger');
+        console.error(err);
+    }
 });
 
 // --- ADMIN LOGIC ---
@@ -169,6 +241,7 @@ function renderAdmin() {
         adminAuth.classList.add('hidden');
         adminDash.classList.remove('hidden');
         renderAdminTable();
+        // Since we fetch fresh data on navigation, admin table is up to date
     }
 }
 
@@ -193,7 +266,7 @@ function renderAdminTable() {
     const tbody = document.getElementById('admin-issues-list');
     tbody.innerHTML = STATE.issues.map(issue => `
         <tr>
-            <td><small style="color:var(--text-muted)">${issue.id.substr(0,6)}</small></td>
+            <td><small style="color:var(--text-muted)">${issue.id.substr(0, 6)}</small></td>
             <td>${issue.type}</td>
             <td>${issue.location}</td>
             <td>${formatDate(issue.date)}</td>
@@ -208,22 +281,30 @@ function renderAdminTable() {
     `).join('');
 }
 
-// Global functions for inline HTML event handlers (simpler than event delegation for this size)
-window.updateStatus = (id, status) => {
-    const issue = STATE.issues.find(i => i.id === id);
-    if (issue) {
-        issue.status = status;
-        saveIssues();
-        renderAdminTable();
+// API Calls for Actions
+window.updateStatus = async (id, status) => {
+    try {
+        await fetch(`${API_URL}/${id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+        });
         showToast(`Status updated to ${status}`, 'success');
+        fetchIssues().then(renderAdminTable); // Refresh
+    } catch (e) {
+        console.error(e);
+        showToast('Failed to update', 'danger');
     }
 };
 
-window.deleteIssue = (id) => {
+window.deleteIssue = async (id) => {
     if (confirm('Are you sure you want to delete this report?')) {
-        STATE.issues = STATE.issues.filter(i => i.id !== id);
-        saveIssues();
-        renderAdminTable();
-        showToast('Report deleted', 'success');
+        try {
+            await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+            showToast('Report deleted', 'success');
+            fetchIssues().then(renderAdminTable); // Refresh
+        } catch (e) {
+            showToast('Failed to delete', 'danger');
+        }
     }
 };
