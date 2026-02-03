@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityFix | Local Problem Reporter</title>
+    <meta name="description" content="Report and track local issues in your city or campus.">
+    <link rel="stylesheet" href="style.css">
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+</head>
+<body>
+
+    <nav class="navbar">
+        <div class="container nav-content">
+            <a href="#home" class="logo">
+                <i class="ri-map-pin-user-fill"></i> City<span>Fix</span>
+            </a>
+            <div class="nav-links">
+                <a href="#home" class="nav-link active" data-target="home">Home</a>
+                <a href="#report" class="nav-link" data-target="report">Report</a>
+                <a href="#admin" class="nav-link" data-target="admin">Admin</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container main-content">
+        
+        <!-- HOME VIEW -->
+        <section id="home-view" class="view active">
+            <header class="hero-section">
+                <div class="hero-text">
+                    <h1>Make Your City Better, <br>One Report at a Time.</h1>
+                    <p>Spot a pothole? Broken streetlight? Garbage pileup? Report it instantly and track the resolution.</p>
+                    <a href="#report" class="btn btn-primary btn-lg">Report an Issue <i class="ri-arrow-right-line"></i></a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat-card">
+                        <h3 id="total-issues">0</h3>
+                        <p>Issues Reported</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="solved-issues">0</h3>
+                        <p>Solved</p>
+                    </div>
+                </div>
+            </header>
+
+            <div class="feed-header">
+                <h2>Recent Reports</h2>
+                <div class="filter-tabs">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="pending">Pending</button>
+                    <button class="filter-btn" data-filter="in-progress">In Progress</button>
+                    <button class="filter-btn" data-filter="solved">Solved</button>
+                </div>
+            </div>
+
+            <div id="issue-feed" class="issue-grid">
+                <!-- Issues will be injected here -->
+            </div>
+        </section>
+
+        <!-- REPORT VIEW -->
+        <section id="report-view" class="view">
+            <div class="form-container">
+                <div class="form-header">
+                    <h2>Report an Issue</h2>
+                    <p>Fill in the details below to alert the authorities.</p>
+                </div>
+                <form id="report-form">
+                    <div class="form-group">
+                        <label for="issue-type">Issue Type</label>
+                        <select id="issue-type" required>
+                            <option value="" disabled selected>Select an option...</option>
+                            <option value="Road Damage">Road Damage / Pothole</option>
+                            <option value="Street Light">Street Light Outage</option>
+                            <option value="Garbage">Garbage / Sanitation</option>
+                            <option value="Water Leak">Water Leakage</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="issue-location">Location</label>
+                        <div class="location-input-wrapper">
+                            <input type="text" id="issue-location" placeholder="e.g., Main St & 5th Ave" required>
+                            <button type="button" id="get-location-btn" title="Use Current Location">
+                                <i class="ri-gps-fill"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="issue-desc">Description</label>
+                        <textarea id="issue-desc" rows="4" placeholder="Describe the problem..." required></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="issue-image">Upload Photo (Optional)</label>
+                        <div class="file-upload-box">
+                            <input type="file" id="issue-image" accept="image/*">
+                            <div class="upload-content">
+                                <i class="ri-upload-cloud-2-line"></i>
+                                <p>Click to upload or drag and drop</p>
+                                <span id="file-name-display">No file selected</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-block">Submit Report</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- ADMIN VIEW -->
+        <section id="admin-view" class="view">
+            <div id="admin-auth" class="auth-container">
+                <div class="auth-box">
+                    <i class="ri-shield-user-fill auth-icon"></i>
+                    <h2>Admin Access</h2>
+                    <p>Enter password to manage issues.</p>
+                    <form id="admin-login-form">
+                        <input type="password" id="admin-password" placeholder="Password (admin123)" required>
+                        <button type="submit" class="btn btn-primary btn-block">Login</button>
+                    </form>
+                </div>
+            </div>
+
+            <div id="admin-dashboard" class="dashboard-container hidden">
+                <header class="dashboard-header">
+                    <h2>Admin Dashboard</h2>
+                    <button id="admin-logout" class="btn btn-outline-danger">Logout</button>
+                </header>
+                
+                <div class="admin-table-wrapper">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Type</th>
+                                <th>Location</th>
+                                <th>Date</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-issues-list">
+                            <!-- Admin rows injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <div id="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
