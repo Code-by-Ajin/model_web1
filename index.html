@@ -5,32 +5,77 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CityFix | Local Problem Reporter</title>
-    <meta name="description" content="Report and track local issues in your city or campus.">
+    <meta name="description" content="Report and track local issues in your city. Earn points for verified reports!">
     <link rel="stylesheet" href="style.css">
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet">
     <!-- Leaflet (Maps) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
 </head>
 
 <body>
-
+    <!-- Navbar -->
     <nav class="navbar">
         <div class="container nav-content">
             <a href="#home" class="logo">
                 <i class="ri-map-pin-user-fill"></i> City<span>Fix</span>
             </a>
             <div class="nav-links">
-                <a href="#home" class="nav-link active" data-target="home">Home</a>
-                <a href="#report" class="nav-link" data-target="report">Report</a>
-                <a href="#admin" class="nav-link" data-target="admin">Admin</a>
+                <a href="#home" class="nav-link active" data-target="home"><i class="ri-home-line"></i> Home</a>
+                <a href="#map" class="nav-link" data-target="map"><i class="ri-map-2-line"></i> Map</a>
+                <a href="#report" class="nav-link" data-target="report"><i class="ri-add-circle-line"></i> Report</a>
+                <a href="#leaderboard" class="nav-link" data-target="leaderboard"><i class="ri-trophy-line"></i>
+                    Leaders</a>
+                <a href="#admin" class="nav-link" data-target="admin"><i class="ri-shield-user-line"></i> Admin</a>
+            </div>
+
+            <!-- User Section -->
+            <div class="nav-user">
+                <div id="guest-actions" class="guest-actions">
+                    <button class="btn btn-outline" onclick="showModal('login')">Login</button>
+                    <button class="btn btn-primary btn-sm" onclick="showModal('register')">Sign Up</button>
+                </div>
+                <div id="user-profile" class="user-profile hidden">
+                    <div class="points-badge">
+                        <i class="ri-coin-fill"></i>
+                        <span id="user-points">0</span>
+                    </div>
+                    <div class="profile-dropdown">
+                        <button class="profile-btn" onclick="toggleProfileMenu()">
+                            <div class="avatar" id="user-avatar">U</div>
+                            <span id="user-name">User</span>
+                            <i class="ri-arrow-down-s-line"></i>
+                        </button>
+                        <div class="dropdown-menu" id="profile-menu">
+                            <a href="#" onclick="showMyRewards()"><i class="ri-gift-line"></i> My Rewards</a>
+                            <a href="#" onclick="logout()"><i class="ri-logout-box-line"></i> Logout</a>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
+    </nav>
+
+    <!-- Mobile Bottom Nav -->
+    <nav class="mobile-nav">
+        <a href="#home" class="mobile-nav-link active" data-target="home"><i
+                class="ri-home-line"></i><span>Home</span></a>
+        <a href="#map" class="mobile-nav-link" data-target="map"><i class="ri-map-2-line"></i><span>Map</span></a>
+        <a href="#report" class="mobile-nav-link" data-target="report"><i
+                class="ri-add-circle-fill"></i><span>Report</span></a>
+        <a href="#leaderboard" class="mobile-nav-link" data-target="leaderboard"><i
+                class="ri-trophy-line"></i><span>Leaders</span></a>
+        <a href="#admin" class="mobile-nav-link" data-target="admin"><i
+                class="ri-shield-user-line"></i><span>Admin</span></a>
     </nav>
 
     <main class="container main-content">
@@ -40,17 +85,24 @@
             <header class="hero-section">
                 <div class="hero-text">
                     <h1>Make Your City Better, <br>One Report at a Time.</h1>
-                    <p>Spot a pothole? Broken streetlight? Garbage pileup? Report it instantly and track the resolution.
-                    </p>
+                    <p>Spot a pothole? Broken streetlight? Garbage pileup? Report it instantly, earn points, and track
+                        the resolution.</p>
                     <a href="#report" class="btn btn-primary btn-lg">Report an Issue <i
                             class="ri-arrow-right-line"></i></a>
                 </div>
                 <div class="hero-stats">
                     <div class="stat-card">
+                        <i class="ri-file-list-3-line stat-icon"></i>
                         <h3 id="total-issues">0</h3>
                         <p>Issues Reported</p>
                     </div>
                     <div class="stat-card">
+                        <i class="ri-tools-line stat-icon"></i>
+                        <h3 id="progress-issues">0</h3>
+                        <p>In Progress</p>
+                    </div>
+                    <div class="stat-card">
+                        <i class="ri-checkbox-circle-line stat-icon"></i>
                         <h3 id="solved-issues">0</h3>
                         <p>Solved</p>
                     </div>
@@ -72,58 +124,130 @@
             </div>
         </section>
 
+        <!-- MAP VIEW -->
+        <section id="map-view" class="view">
+            <div class="map-header">
+                <h2><i class="ri-map-2-line"></i> Issue Map</h2>
+                <p>All reported issues across the area</p>
+            </div>
+            <div id="main-map" class="main-map"></div>
+        </section>
+
         <!-- REPORT VIEW -->
         <section id="report-view" class="view">
             <div class="form-container">
                 <div class="form-header">
-                    <h2>Report an Issue</h2>
+                    <h2><i class="ri-edit-2-line"></i> Report an Issue</h2>
                     <p>Fill in the details below to alert the authorities.</p>
                 </div>
+
+                <div id="login-prompt" class="login-prompt hidden">
+                    <i class="ri-user-line"></i>
+                    <p>Please <a href="#" onclick="showModal('login')">login</a> or <a href="#"
+                            onclick="showModal('register')">sign up</a> to earn points for your reports!</p>
+                </div>
+
                 <form id="report-form">
                     <div class="form-group">
                         <label for="issue-type">Issue Type</label>
                         <select id="issue-type" required>
                             <option value="" disabled selected>Select an option...</option>
-                            <option value="Road Damage">Road Damage / Pothole</option>
-                            <option value="Street Light">Street Light Outage</option>
-                            <option value="Garbage">Garbage / Sanitation</option>
-                            <option value="Water Leak">Water Leakage</option>
-                            <option value="Other">Other</option>
+                            <option value="Road Damage">🚧 Road Damage / Pothole</option>
+                            <option value="Street Light">💡 Street Light Outage</option>
+                            <option value="Garbage">🗑️ Garbage / Sanitation</option>
+                            <option value="Water Leak">💧 Water Leakage</option>
+                            <option value="Drainage">🌊 Drainage Issue</option>
+                            <option value="Fallen Tree">🌳 Fallen Tree</option>
+                            <option value="Illegal Dumping">⚠️ Illegal Dumping</option>
+                            <option value="Other">📝 Other</option>
                         </select>
                     </div>
 
                     <div class="form-group">
                         <label for="issue-location">Location</label>
-                        <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:0.5rem;">Click on the map to
-                            pin the location.</p>
-                        <div id="map-picker" style="height: 300px; width:100%; border-radius:12px; z-index: 1;"></div>
+                        <p class="form-hint">Search for a place/pincode or click on the map.</p>
+
+                        <!-- Location Search with Autocomplete -->
+                        <div class="location-autocomplete">
+                            <div class="search-input-wrapper">
+                                <i class="ri-search-line"></i>
+                                <input type="text" id="location-search"
+                                    placeholder="Type area name, pincode, or landmark..." autocomplete="off">
+                                <span id="search-loading" class="search-loading hidden">
+                                    <i class="ri-loader-4-line"></i>
+                                </span>
+                            </div>
+                            <div id="location-suggestions" class="location-suggestions hidden"></div>
+                        </div>
+
+                        <div id="map-picker" class="map-picker"></div>
                         <input type="hidden" id="issue-lat">
                         <input type="hidden" id="issue-lng">
-                        <input type="text" id="issue-location" placeholder="Address (Auto-filled or type manually)"
-                            required style="margin-top:10px;">
+                        <input type="text" id="issue-location" placeholder="Selected location will appear here" required
+                            readonly>
                     </div>
 
                     <div class="form-group">
                         <label for="issue-desc">Description</label>
-                        <textarea id="issue-desc" rows="4" placeholder="Describe the problem..." required></textarea>
+                        <textarea id="issue-desc" rows="4" placeholder="Describe the problem in detail..."
+                            required></textarea>
                     </div>
 
                     <div class="form-group">
-                        <label for="issue-image">Upload Photo (Optional)</label>
+                        <label for="issue-image">Upload Photo (Recommended)</label>
                         <div class="file-upload-box">
                             <input type="file" id="issue-image" accept="image/*">
                             <div class="upload-content">
-                                <i class="ri-upload-cloud-2-line"></i>
-                                <p>Click to upload or drag and drop</p>
+                                <i class="ri-camera-line"></i>
+                                <p>Click to upload or take a photo</p>
                                 <span id="file-name-display">No file selected</span>
                             </div>
+                            <div id="image-preview" class="image-preview hidden"></div>
                         </div>
                     </div>
 
                     <div class="form-actions">
-                        <button type="submit" class="btn btn-primary btn-block">Submit Report</button>
+                        <button type="submit" class="btn btn-primary btn-block">
+                            <i class="ri-send-plane-fill"></i> Submit Report
+                        </button>
                     </div>
                 </form>
+            </div>
+        </section>
+
+        <!-- LEADERBOARD VIEW -->
+        <section id="leaderboard-view" class="view">
+            <div class="leaderboard-header">
+                <h2><i class="ri-trophy-fill"></i> Top Reporters</h2>
+                <p>Earn points when your reports are verified by admin!</p>
+            </div>
+
+            <div class="points-info">
+                <div class="points-card">
+                    <i class="ri-checkbox-circle-line"></i>
+                    <div>
+                        <h4>+10 Points</h4>
+                        <p>When report is validated</p>
+                    </div>
+                </div>
+                <div class="points-card">
+                    <i class="ri-check-double-line"></i>
+                    <div>
+                        <h4>+20 Points</h4>
+                        <p>When issue is solved</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="leaderboard-list" class="leaderboard-list">
+                <!-- Leaderboard items injected here -->
+            </div>
+
+            <div class="rewards-section">
+                <h3><i class="ri-gift-fill"></i> Available Rewards</h3>
+                <div id="rewards-list" class="rewards-grid">
+                    <!-- Rewards injected here -->
+                </div>
             </div>
         </section>
 
@@ -135,7 +259,7 @@
                     <h2>Admin Access</h2>
                     <p>Enter password to manage issues.</p>
                     <form id="admin-login-form">
-                        <input type="password" id="admin-password" placeholder="Password (admin123)" required>
+                        <input type="password" id="admin-password" placeholder="Password" required>
                         <button type="submit" class="btn btn-primary btn-block">Login</button>
                     </form>
                 </div>
@@ -143,33 +267,204 @@
 
             <div id="admin-dashboard" class="dashboard-container hidden">
                 <header class="dashboard-header">
-                    <h2>Admin Dashboard</h2>
-                    <button id="admin-logout" class="btn btn-outline-danger">Logout</button>
+                    <h2><i class="ri-dashboard-line"></i> Admin Dashboard</h2>
+                    <button id="admin-logout" class="btn btn-outline-danger">
+                        <i class="ri-logout-box-line"></i> Logout
+                    </button>
                 </header>
 
-                <div class="admin-table-wrapper">
-                    <table class="admin-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Type</th>
-                                <th>Location</th>
-                                <th>Date</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="admin-issues-list">
-                            <!-- Admin rows injected here -->
-                        </tbody>
-                    </table>
+                <!-- Admin Stats -->
+                <div class="admin-stats">
+                    <div class="admin-stat-card">
+                        <i class="ri-file-list-3-line"></i>
+                        <div>
+                            <h3 id="admin-total">0</h3>
+                            <p>Total Issues</p>
+                        </div>
+                    </div>
+                    <div class="admin-stat-card pending">
+                        <i class="ri-time-line"></i>
+                        <div>
+                            <h3 id="admin-pending">0</h3>
+                            <p>Pending</p>
+                        </div>
+                    </div>
+                    <div class="admin-stat-card progress">
+                        <i class="ri-tools-line"></i>
+                        <div>
+                            <h3 id="admin-progress">0</h3>
+                            <p>In Progress</p>
+                        </div>
+                    </div>
+                    <div class="admin-stat-card solved">
+                        <i class="ri-checkbox-circle-line"></i>
+                        <div>
+                            <h3 id="admin-solved">0</h3>
+                            <p>Solved</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Tabs -->
+                <div class="admin-tabs">
+                    <button class="admin-tab active" data-tab="issues">
+                        <i class="ri-file-list-3-line"></i> Issues
+                    </button>
+                    <button class="admin-tab" data-tab="users">
+                        <i class="ri-group-line"></i> Users
+                    </button>
+                    <button class="admin-tab" data-tab="rewards">
+                        <i class="ri-gift-line"></i> Give Rewards
+                    </button>
+                </div>
+
+                <!-- Issues Tab -->
+                <div id="admin-issues-tab" class="admin-tab-content active">
+                    <div class="admin-table-wrapper">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Type</th>
+                                    <th>Location</th>
+                                    <th>Reporter</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Points</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-issues-list">
+                                <!-- Admin rows injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Users Tab -->
+                <div id="admin-users-tab" class="admin-tab-content">
+                    <div class="admin-table-wrapper">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Email</th>
+                                    <th>Points</th>
+                                    <th>Reports</th>
+                                    <th>Joined</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-users-list">
+                                <!-- Users injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Give Rewards Tab -->
+                <div id="admin-rewards-tab" class="admin-tab-content">
+                    <div class="give-reward-form">
+                        <h3>Give Reward to User</h3>
+                        <div class="form-group">
+                            <label>Select User</label>
+                            <select id="reward-user-select">
+                                <option value="">Select a user...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Select Reward</label>
+                            <select id="reward-select">
+                                <option value="">Select a reward...</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="giveReward()">
+                            <i class="ri-gift-line"></i> Give Reward
+                        </button>
+                    </div>
                 </div>
             </div>
         </section>
 
     </main>
 
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="hideModal('login')">&times;</button>
+            <div class="modal-header">
+                <i class="ri-user-line modal-icon"></i>
+                <h2>Welcome Back!</h2>
+                <p>Login to track your reports and earn points</p>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-email">Email</label>
+                    <input type="email" id="login-email" placeholder="your@email.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" placeholder="Your password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Login</button>
+            </form>
+            <p class="modal-footer">
+                Don't have an account? <a href="#" onclick="switchModal('register')">Sign Up</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div id="register-modal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="hideModal('register')">&times;</button>
+            <div class="modal-header">
+                <i class="ri-user-add-line modal-icon"></i>
+                <h2>Create Account</h2>
+                <p>Join and help improve your community!</p>
+            </div>
+            <form id="register-form">
+                <div class="form-group">
+                    <label for="register-username">Username</label>
+                    <input type="text" id="register-username" placeholder="Choose a username" required minlength="3">
+                </div>
+                <div class="form-group">
+                    <label for="register-email">Email</label>
+                    <input type="email" id="register-email" placeholder="your@email.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="register-password">Password</label>
+                    <input type="password" id="register-password" placeholder="Create password (min 4 chars)" required
+                        minlength="4">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Sign Up</button>
+            </form>
+            <p class="modal-footer">
+                Already have an account? <a href="#" onclick="switchModal('login')">Login</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- My Rewards Modal -->
+    <div id="rewards-modal" class="modal">
+        <div class="modal-content modal-lg">
+            <button class="modal-close" onclick="hideModal('rewards')">&times;</button>
+            <div class="modal-header">
+                <i class="ri-gift-fill modal-icon"></i>
+                <h2>My Rewards</h2>
+            </div>
+            <div id="my-rewards-list" class="my-rewards-list">
+                <!-- Rewards injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
     <div id="toast-container"></div>
+
+    <!-- Points Animation -->
+    <div id="points-popup" class="points-popup hidden">
+        <span>+<span id="points-value">10</span> pts</span>
+    </div>
 
     <script src="app.js"></script>
 </body>
