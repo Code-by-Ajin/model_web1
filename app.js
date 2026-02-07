@@ -2,6 +2,11 @@
 // CityFix - Local Problem Reporter
 // ============================================
 
+// Detect if running on GitHub Pages (static hosting without backend)
+const IS_DEMO_MODE = !window.location.hostname.includes('localhost') &&
+    !window.location.hostname.includes('127.0.0.1') &&
+    !window.location.port;
+
 const API_URL = '/api';
 
 // State Management
@@ -13,6 +18,14 @@ const STATE = {
     isAdmin: false,
     filter: 'all'
 };
+
+// Default demo rewards
+const DEMO_REWARDS = [
+    { id: 'r1', name: 'Bronze Reporter', description: 'Starting reporter badge', points_required: 50, icon: '🥉' },
+    { id: 'r2', name: 'Silver Guardian', description: 'Active community member', points_required: 200, icon: '🥈' },
+    { id: 'r3', name: 'Gold Champion', description: 'Top contributor', points_required: 500, icon: '🥇' },
+    { id: 'r4', name: 'Coffee Voucher', description: 'Free coffee at local cafe', points_required: 100, icon: '☕' }
+];
 
 // Map Variables
 let pickerMap = null;
@@ -31,6 +44,12 @@ const INDIA_CENTER = [20.5937, 78.9629];
 // ============================================
 
 async function init() {
+    // Show demo mode banner if on static hosting
+    if (IS_DEMO_MODE) {
+        showDemoBanner();
+        loadDemoData();
+    }
+
     // Load saved user session
     const savedUser = localStorage.getItem('cityfix_user');
     if (savedUser) {
@@ -38,8 +57,10 @@ async function init() {
         updateUserUI();
     }
 
-    // Initialize Socket.IO
-    initSocket();
+    // Initialize Socket.IO (only if not demo mode)
+    if (!IS_DEMO_MODE) {
+        initSocket();
+    }
 
     // Fetch data
     await fetchIssues();
@@ -1061,3 +1082,207 @@ window.logout = logout;
 window.showMyRewards = showMyRewards;
 window.giveReward = giveReward;
 window.viewIssue = viewIssue;
+window.closeMobileMenu = closeMobileMenu;
+
+// ============================================
+// DEMO MODE (For GitHub Pages)
+// ============================================
+
+function showDemoBanner() {
+    document.body.classList.add('demo-mode');
+    const banner = document.createElement('div');
+    banner.className = 'demo-banner';
+    banner.innerHTML = '⚠️ Demo Mode - Data saved locally. For full features, run: <code>python server.py</code>';
+    document.body.insertBefore(banner, document.body.firstChild);
+}
+
+function loadDemoData() {
+    // Load issues from localStorage
+    const savedIssues = localStorage.getItem('cityfix_issues');
+    if (savedIssues) {
+        STATE.issues = JSON.parse(savedIssues);
+    }
+
+    // Load users from localStorage
+    const savedUsers = localStorage.getItem('cityfix_users');
+    if (savedUsers) {
+        STATE.users = JSON.parse(savedUsers);
+    }
+
+    // Use default rewards
+    STATE.rewards = DEMO_REWARDS;
+}
+
+function saveDemoData() {
+    localStorage.setItem('cityfix_issues', JSON.stringify(STATE.issues));
+    localStorage.setItem('cityfix_users', JSON.stringify(STATE.users));
+}
+
+// Override fetch functions for demo mode
+const originalFetchIssues = fetchIssues;
+fetchIssues = async function () {
+    if (IS_DEMO_MODE) {
+        loadDemoData();
+        renderHome();
+        return;
+    }
+    return originalFetchIssues();
+};
+
+const originalFetchLeaderboard = fetchLeaderboard;
+fetchLeaderboard = async function () {
+    if (IS_DEMO_MODE) {
+        renderLeaderboard();
+        return;
+    }
+    return originalFetchLeaderboard();
+};
+
+const originalFetchRewards = fetchRewards;
+fetchRewards = async function () {
+    if (IS_DEMO_MODE) {
+        STATE.rewards = DEMO_REWARDS;
+        renderRewards();
+        return;
+    }
+    return originalFetchRewards();
+};
+
+// ============================================
+// MOBILE ACCOUNT MENU
+// ============================================
+
+// Mobile account button handler
+document.getElementById('mobile-account-btn')?.addEventListener('click', () => {
+    const menu = document.getElementById('mobile-account-menu');
+    menu.classList.toggle('hidden');
+    menu.classList.toggle('active');
+});
+
+function closeMobileMenu() {
+    const menu = document.getElementById('mobile-account-menu');
+    menu.classList.add('hidden');
+    menu.classList.remove('active');
+}
+
+// Update mobile UI when user state changes
+function updateMobileUserUI() {
+    const guestContent = document.getElementById('mobile-guest-content');
+    const userContent = document.getElementById('mobile-user-content');
+
+    if (!guestContent || !userContent) return;
+
+    if (STATE.currentUser) {
+        guestContent.classList.add('hidden');
+        userContent.classList.remove('hidden');
+        document.getElementById('mobile-user-name').textContent = STATE.currentUser.username;
+        document.getElementById('mobile-user-points').textContent = STATE.currentUser.points;
+        document.getElementById('mobile-user-avatar').textContent = STATE.currentUser.username.charAt(0).toUpperCase();
+    } else {
+        guestContent.classList.remove('hidden');
+        userContent.classList.add('hidden');
+    }
+}
+
+// Override updateUserUI to also update mobile
+const originalUpdateUserUI = updateUserUI;
+updateUserUI = function () {
+    originalUpdateUserUI();
+    updateMobileUserUI();
+};
+
+// Demo mode: Override form submission
+if (IS_DEMO_MODE) {
+    document.addEventListener('DOMContentLoaded', () => {
+        // Register form
+        document.getElementById('register-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('register-username').value;
+            const email = document.getElementById('register-email').value;
+
+            const newUser = {
+                id: 'u' + Date.now(),
+                username,
+                email,
+                points: 0,
+                total_reports: 0,
+                solved_reports: 0
+            };
+
+            STATE.users.push(newUser);
+            STATE.currentUser = newUser;
+            localStorage.setItem('cityfix_user', JSON.stringify(newUser));
+            saveDemoData();
+
+            updateUserUI();
+            hideModal('register');
+            showToast(`Welcome to CityFix, ${username}!`, 'success');
+        });
+
+        // Login form
+        document.getElementById('login-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+
+            let user = STATE.users.find(u => u.email === email);
+            if (!user) {
+                user = {
+                    id: 'u' + Date.now(),
+                    username: email.split('@')[0],
+                    email,
+                    points: 0,
+                    total_reports: 0,
+                    solved_reports: 0
+                };
+                STATE.users.push(user);
+                saveDemoData();
+            }
+
+            STATE.currentUser = user;
+            localStorage.setItem('cityfix_user', JSON.stringify(user));
+            updateUserUI();
+            hideModal('login');
+            showToast(`Welcome back, ${user.username}!`, 'success');
+        });
+
+        // Report form
+        document.getElementById('report-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const lat = document.getElementById('issue-lat').value;
+            const lng = document.getElementById('issue-lng').value;
+
+            if (!lat || !lng) {
+                showToast('Please select a location on the map', 'warning');
+                return;
+            }
+
+            const newIssue = {
+                id: 'i' + Date.now(),
+                user_id: STATE.currentUser?.id || null,
+                reporter_name: STATE.currentUser?.username || 'Anonymous',
+                type: document.getElementById('issue-type').value,
+                location: document.getElementById('issue-location').value,
+                lat: parseFloat(lat),
+                lng: parseFloat(lng),
+                description: document.getElementById('issue-desc').value,
+                image: currentImageBase64,
+                date: new Date().toISOString(),
+                status: 'pending',
+                points_awarded: 0
+            };
+
+            STATE.issues.unshift(newIssue);
+            saveDemoData();
+
+            showToast('Issue reported! (Demo mode - saved locally)', 'success');
+            document.getElementById('report-form').reset();
+            if (pickerMarker) {
+                pickerMap.removeLayer(pickerMarker);
+                pickerMarker = null;
+            }
+
+            setTimeout(() => window.location.hash = '#home', 1000);
+        });
+    });
+}
