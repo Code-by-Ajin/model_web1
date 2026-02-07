@@ -2,10 +2,8 @@
 // CityFix - Local Problem Reporter
 // ============================================
 
-// Detect if running on GitHub Pages (static hosting without backend)
-const IS_DEMO_MODE = !window.location.hostname.includes('localhost') &&
-    !window.location.hostname.includes('127.0.0.1') &&
-    !window.location.port;
+// Demo mode will be determined after trying to connect to server
+let IS_DEMO_MODE = false;
 
 const API_URL = '/api';
 
@@ -44,8 +42,15 @@ const INDIA_CENTER = [20.5937, 78.9629];
 // ============================================
 
 async function init() {
-    // Show demo mode banner if on static hosting
-    if (IS_DEMO_MODE) {
+    // Check if server is available
+    try {
+        const healthCheck = await fetch(`${API_URL}/issues`, { method: 'GET' });
+        if (!healthCheck.ok) throw new Error('Server unavailable');
+        IS_DEMO_MODE = false;
+        console.log('✅ Server connected');
+    } catch (e) {
+        IS_DEMO_MODE = true;
+        console.log('⚠️ Server unavailable - Demo mode enabled');
         showDemoBanner();
         loadDemoData();
     }
@@ -76,6 +81,9 @@ async function init() {
 
     // Setup event listeners
     setupEventListeners();
+
+    // Setup mobile menu
+    setupMobileMenu();
 }
 
 function initSocket() {
