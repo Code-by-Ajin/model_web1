@@ -74,9 +74,41 @@
                 class="ri-add-circle-fill"></i><span>Report</span></a>
         <a href="#leaderboard" class="mobile-nav-link" data-target="leaderboard"><i
                 class="ri-trophy-line"></i><span>Leaders</span></a>
-        <a href="#admin" class="mobile-nav-link" data-target="admin"><i
-                class="ri-shield-user-line"></i><span>Admin</span></a>
+        <a href="javascript:void(0)" class="mobile-nav-link" id="mobile-account-btn"><i
+                class="ri-user-line"></i><span>Account</span></a>
     </nav>
+
+    <!-- Mobile Account Menu -->
+    <div id="mobile-account-menu" class="mobile-account-menu hidden">
+        <div class="mobile-menu-header">
+            <h3>Account</h3>
+            <button onclick="closeMobileMenu()" class="close-btn">&times;</button>
+        </div>
+        <div id="mobile-guest-content" class="mobile-menu-content">
+            <p>Login or sign up to earn points!</p>
+            <button class="btn btn-primary btn-block" onclick="showModal('login'); closeMobileMenu();">
+                <i class="ri-login-box-line"></i> Login
+            </button>
+            <button class="btn btn-outline btn-block" onclick="showModal('register'); closeMobileMenu();">
+                <i class="ri-user-add-line"></i> Sign Up
+            </button>
+        </div>
+        <div id="mobile-user-content" class="mobile-menu-content hidden">
+            <div class="mobile-user-info">
+                <div class="avatar" id="mobile-user-avatar">U</div>
+                <div>
+                    <h4 id="mobile-user-name">User</h4>
+                    <p><i class="ri-coin-fill"></i> <span id="mobile-user-points">0</span> points</p>
+                </div>
+            </div>
+            <button class="btn btn-outline btn-block" onclick="showMyRewards(); closeMobileMenu();">
+                <i class="ri-gift-line"></i> My Rewards
+            </button>
+            <button class="btn btn-outline-danger btn-block" onclick="logout(); closeMobileMenu();">
+                <i class="ri-logout-box-line"></i> Logout
+            </button>
+        </div>
+    </div>
 
     <main class="container main-content">
 
