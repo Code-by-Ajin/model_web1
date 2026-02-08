@@ -1,9 +1,14 @@
+
 // ============================================
 // CityFix - Local Problem Reporter
+// FIXED VERSION with all bug fixes applied
 // ============================================
 
-// Demo mode will be determined after trying to connect to server
-let IS_DEMO_MODE = false;
+// Better Demo Mode Detection
+const IS_DEMO_MODE = window.location.protocol === 'file:' || 
+    (window.location.hostname !== 'localhost' && 
+     window.location.hostname !== '127.0.0.1' &&
+     window.location.port === '');
 
 const API_URL = '/api';
 
@@ -38,19 +43,51 @@ let socket = null;
 const INDIA_CENTER = [20.5937, 78.9629];
 
 // ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
+// Sanitize HTML to prevent XSS
+function sanitizeHTML(str) {
+    if (!str) return '';
+    const temp = document.createElement('div');
+    temp.textContent = str;
+    return temp.innerHTML;
+}
+
+// Safe socket emit with null check
+function safeSocketEmit(event, data) {
+    if (socket && socket.connected) {
+        socket.emit(event, data);
+    }
+}
+
+// Loading spinner functions
+function showLoadingSpinner() {
+    let spinner = document.getElementById('loading-spinner');
+    if (!spinner) {
+        spinner = document.createElement('div');
+        spinner.id = 'loading-spinner';
+        spinner.className = 'loading-spinner';
+        spinner.innerHTML = '<i class="ri-loader-4-line"></i>';
+        document.body.appendChild(spinner);
+    }
+    spinner.classList.add('active');
+}
+
+function hideLoadingSpinner() {
+    const spinner = document.getElementById('loading-spinner');
+    if (spinner) {
+        spinner.classList.remove('active');
+    }
+}
+
+// ============================================
 // INITIALIZATION
 // ============================================
 
 async function init() {
-    // Check if server is available
-    try {
-        const healthCheck = await fetch(`${API_URL}/issues`, { method: 'GET' });
-        if (!healthCheck.ok) throw new Error('Server unavailable');
-        IS_DEMO_MODE = false;
-        console.log('✅ Server connected');
-    } catch (e) {
-        IS_DEMO_MODE = true;
-        console.log('⚠️ Server unavailable - Demo mode enabled');
+    // Initialize demo mode if needed
+    if (IS_DEMO_MODE) {
         showDemoBanner();
         loadDemoData();
     }
@@ -58,8 +95,13 @@ async function init() {
     // Load saved user session
     const savedUser = localStorage.getItem('cityfix_user');
     if (savedUser) {
-        STATE.currentUser = JSON.parse(savedUser);
-        updateUserUI();
+        try {
+            STATE.currentUser = JSON.parse(savedUser);
+            updateUserUI();
+        } catch (e) {
+            console.error('Failed to load saved user:', e);
+            localStorage.removeItem('cityfix_user');
+        }
     }
 
     // Initialize Socket.IO (only if not demo mode)
@@ -81,59 +123,69 @@ async function init() {
 
     // Setup event listeners
     setupEventListeners();
-
-    // Setup mobile menu
-    setupMobileMenu();
 }
 
 function initSocket() {
-    socket = io();
+    try {
+        socket = io({
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 5
+        });
 
-    socket.on('connect', () => {
-        console.log('🔌 Connected to server');
-        showToast('Connected to live updates', 'success');
-    });
+        socket.on('connect', () => {
+            console.log('🔌 Connected to server');
+            showToast('Connected to live updates', 'success');
+        });
 
-    socket.on('disconnect', () => {
-        console.log('❌ Disconnected from server');
-    });
+        socket.on('disconnect', () => {
+            console.log('❌ Disconnected from server');
+            showToast('Connection lost. Reconnecting...', 'warning');
+        });
 
-    socket.on('new_issue', (issue) => {
-        STATE.issues.unshift(issue);
-        renderHome();
-        renderMainMap();
-        showToast('New issue reported!', 'info');
-    });
+        socket.on('connect_error', (error) => {
+            console.error('Connection error:', error);
+        });
 
-    socket.on('status_updated', (data) => {
-        const issue = STATE.issues.find(i => i.id === data.issue_id);
-        if (issue) {
-            issue.status = data.status;
+        socket.on('new_issue', (issue) => {
+            STATE.issues.unshift(issue);
             renderHome();
-            if (STATE.isAdmin) renderAdminTable();
-        }
-        if (data.points_awarded > 0) {
-            showToast(`${data.points_awarded} points awarded!`, 'success');
-        }
-    });
+            renderMainMap();
+            showToast('New issue reported!', 'info');
+        });
 
-    socket.on('issue_deleted', (data) => {
-        STATE.issues = STATE.issues.filter(i => i.id !== data.issue_id);
-        renderHome();
-        renderMainMap();
-    });
-
-    socket.on('points_updated', (data) => {
-        if (STATE.currentUser && STATE.currentUser.id === data.user_id) {
-            STATE.currentUser.points = data.points;
-            localStorage.setItem('cityfix_user', JSON.stringify(STATE.currentUser));
-            updateUserUI();
-            if (data.added) {
-                showPointsAnimation(data.added);
+        socket.on('status_updated', (data) => {
+            const issue = STATE.issues.find(i => i.id === data.issue_id);
+            if (issue) {
+                issue.status = data.status;
+                renderHome();
+                if (STATE.isAdmin) renderAdminTable();
             }
-        }
-        fetchLeaderboard();
-    });
+            if (data.points_awarded > 0) {
+                showToast(`${data.points_awarded} points awarded!`, 'success');
+            }
+        });
+
+        socket.on('issue_deleted', (data) => {
+            STATE.issues = STATE.issues.filter(i => i.id !== data.issue_id);
+            renderHome();
+            renderMainMap();
+        });
+
+        socket.on('points_updated', (data) => {
+            if (STATE.currentUser && STATE.currentUser.id === data.user_id) {
+                STATE.currentUser.points = data.points;
+                localStorage.setItem('cityfix_user', JSON.stringify(STATE.currentUser));
+                updateUserUI();
+                if (data.added) {
+                    showPointsAnimation(data.added);
+                }
+            }
+            fetchLeaderboard();
+        });
+    } catch (error) {
+        console.error('Socket initialization failed:', error);
+    }
 }
 
 // ============================================
@@ -141,18 +193,36 @@ function initSocket() {
 // ============================================
 
 async function fetchIssues() {
+    if (IS_DEMO_MODE) {
+        loadDemoData();
+        renderHome();
+        return;
+    }
+    
+    showLoadingSpinner();
     try {
         const res = await fetch(`${API_URL}/issues`);
-        STATE.issues = await res.json();
+        if (!res.ok) throw new Error('Failed to fetch issues');
+        const data = await res.json();
+        STATE.issues = data.issues || data; // Support both formats
         renderHome();
     } catch (e) {
         console.error('Error fetching issues:', e);
+        showToast('Failed to load issues. Please try again.', 'danger');
+    } finally {
+        hideLoadingSpinner();
     }
 }
 
 async function fetchLeaderboard() {
+    if (IS_DEMO_MODE) {
+        renderLeaderboard();
+        return;
+    }
+    
     try {
         const res = await fetch(`${API_URL}/leaderboard`);
+        if (!res.ok) throw new Error('Failed to fetch leaderboard');
         STATE.users = await res.json();
         renderLeaderboard();
     } catch (e) {
@@ -161,8 +231,15 @@ async function fetchLeaderboard() {
 }
 
 async function fetchRewards() {
+    if (IS_DEMO_MODE) {
+        STATE.rewards = DEMO_REWARDS;
+        renderRewards();
+        return;
+    }
+    
     try {
         const res = await fetch(`${API_URL}/rewards`);
+        if (!res.ok) throw new Error('Failed to fetch rewards');
         STATE.rewards = await res.json();
         renderRewards();
     } catch (e) {
@@ -203,6 +280,30 @@ document.getElementById('login-form')?.addEventListener('submit', async (e) => {
     const email = document.getElementById('login-email').value;
     const password = document.getElementById('login-password').value;
 
+    if (IS_DEMO_MODE) {
+        // Demo mode login
+        let user = STATE.users.find(u => u.email === email);
+        if (!user) {
+            user = {
+                id: 'u' + Date.now(),
+                username: email.split('@')[0],
+                email,
+                points: 0,
+                total_reports: 0,
+                solved_reports: 0
+            };
+            STATE.users.push(user);
+            saveDemoData();
+        }
+
+        STATE.currentUser = user;
+        localStorage.setItem('cityfix_user', JSON.stringify(user));
+        updateUserUI();
+        hideModal('login');
+        showToast(`Welcome back, ${user.username}!`, 'success');
+        return;
+    }
+
     try {
         const res = await fetch(`${API_URL}/auth/login`, {
             method: 'POST',
@@ -232,6 +333,28 @@ document.getElementById('register-form')?.addEventListener('submit', async (e) =
     const username = document.getElementById('register-username').value;
     const email = document.getElementById('register-email').value;
     const password = document.getElementById('register-password').value;
+
+    if (IS_DEMO_MODE) {
+        // Demo mode registration
+        const newUser = {
+            id: 'u' + Date.now(),
+            username,
+            email,
+            points: 0,
+            total_reports: 0,
+            solved_reports: 0
+        };
+
+        STATE.users.push(newUser);
+        STATE.currentUser = newUser;
+        localStorage.setItem('cityfix_user', JSON.stringify(newUser));
+        saveDemoData();
+
+        updateUserUI();
+        hideModal('register');
+        showToast(`Welcome to CityFix, ${username}!`, 'success');
+        return;
+    }
 
     try {
         const res = await fetch(`${API_URL}/auth/register`, {
@@ -270,16 +393,47 @@ function updateUserUI() {
     const loginPrompt = document.getElementById('login-prompt');
 
     if (STATE.currentUser) {
-        guestActions.classList.add('hidden');
-        userProfile.classList.remove('hidden');
-        document.getElementById('user-name').textContent = STATE.currentUser.username;
-        document.getElementById('user-points').textContent = STATE.currentUser.points;
-        document.getElementById('user-avatar').textContent = STATE.currentUser.username.charAt(0).toUpperCase();
+        guestActions?.classList.add('hidden');
+        userProfile?.classList.remove('hidden');
+        
+        const userName = document.getElementById('user-name');
+        const userPoints = document.getElementById('user-points');
+        const userAvatar = document.getElementById('user-avatar');
+        
+        if (userName) userName.textContent = STATE.currentUser.username;
+        if (userPoints) userPoints.textContent = STATE.currentUser.points;
+        if (userAvatar) userAvatar.textContent = STATE.currentUser.username.charAt(0).toUpperCase();
         if (loginPrompt) loginPrompt.classList.add('hidden');
     } else {
-        guestActions.classList.remove('hidden');
-        userProfile.classList.add('hidden');
+        guestActions?.classList.remove('hidden');
+        userProfile?.classList.add('hidden');
         if (loginPrompt) loginPrompt.classList.remove('hidden');
+    }
+    
+    // Update mobile UI
+    updateMobileUserUI();
+}
+
+function updateMobileUserUI() {
+    const guestContent = document.getElementById('mobile-guest-content');
+    const userContent = document.getElementById('mobile-user-content');
+
+    if (!guestContent || !userContent) return;
+
+    if (STATE.currentUser) {
+        guestContent.classList.add('hidden');
+        userContent.classList.remove('hidden');
+        
+        const mobileUserName = document.getElementById('mobile-user-name');
+        const mobileUserPoints = document.getElementById('mobile-user-points');
+        const mobileUserAvatar = document.getElementById('mobile-user-avatar');
+        
+        if (mobileUserName) mobileUserName.textContent = STATE.currentUser.username;
+        if (mobileUserPoints) mobileUserPoints.textContent = STATE.currentUser.points;
+        if (mobileUserAvatar) mobileUserAvatar.textContent = STATE.currentUser.username.charAt(0).toUpperCase();
+    } else {
+        guestContent.classList.remove('hidden');
+        userContent.classList.add('hidden');
     }
 }
 
@@ -288,13 +442,19 @@ function updateUserUI() {
 // ============================================
 
 function showModal(type) {
-    document.getElementById(`${type}-modal`).classList.add('active');
-    document.body.style.overflow = 'hidden';
+    const modal = document.getElementById(`${type}-modal`);
+    if (modal) {
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
 }
 
 function hideModal(type) {
-    document.getElementById(`${type}-modal`).classList.remove('active');
-    document.body.style.overflow = '';
+    const modal = document.getElementById(`${type}-modal`);
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
 }
 
 function switchModal(type) {
@@ -303,7 +463,8 @@ function switchModal(type) {
 }
 
 function toggleProfileMenu() {
-    document.getElementById('profile-menu').classList.toggle('active');
+    const menu = document.getElementById('profile-menu');
+    if (menu) menu.classList.toggle('active');
 }
 
 async function showMyRewards() {
@@ -315,6 +476,8 @@ async function showMyRewards() {
         const rewards = await res.json();
 
         const container = document.getElementById('my-rewards-list');
+        if (!container) return;
+        
         if (rewards.length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
@@ -327,8 +490,8 @@ async function showMyRewards() {
                 <div class="reward-item earned">
                     <span class="reward-icon">${r.icon}</span>
                     <div>
-                        <h4>${r.name}</h4>
-                        <p>${r.description}</p>
+                        <h4>${sanitizeHTML(r.name)}</h4>
+                        <p>${sanitizeHTML(r.description)}</p>
                         <small>Earned on ${formatDate(r.redeemed_at)}</small>
                     </div>
                 </div>
@@ -389,7 +552,11 @@ const router = () => {
     }
 };
 
-window.addEventListener('hashchange', router);
+window.addEventListener('hashchange', () => {
+    router();
+    closeMobileMenu();
+});
+
 window.addEventListener('load', init);
 
 // ============================================
@@ -397,6 +564,8 @@ window.addEventListener('load', init);
 // ============================================
 
 function initPickerMap() {
+    if (!document.getElementById('map-picker')) return;
+    
     pickerMap = L.map('map-picker').setView(INDIA_CENTER, 5);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -514,6 +683,8 @@ async function searchLocation(query) {
     const suggestionsContainer = document.getElementById('location-suggestions');
     const loadingIndicator = document.getElementById('search-loading');
 
+    if (!suggestionsContainer || !loadingIndicator) return;
+
     loadingIndicator.classList.remove('hidden');
 
     try {
@@ -549,8 +720,8 @@ async function searchLocation(query) {
                      data-name="${place.display_name}">
                     <i class="ri-map-pin-2-fill"></i>
                     <div class="suggestion-text">
-                        <span class="suggestion-name">${name}</span>
-                        <span class="suggestion-type">${type}</span>
+                        <span class="suggestion-name">${sanitizeHTML(name)}</span>
+                        <span class="suggestion-type">${sanitizeHTML(type)}</span>
                     </div>
                 </div>
             `;
@@ -558,10 +729,13 @@ async function searchLocation(query) {
 
         suggestionsContainer.classList.remove('hidden');
 
-        // Add click handlers
-        suggestionsContainer.querySelectorAll('.suggestion-item').forEach(item => {
-            item.addEventListener('click', () => selectLocation(item));
-        });
+        // Use event delegation to prevent memory leaks
+        suggestionsContainer.onclick = (e) => {
+            const item = e.target.closest('.suggestion-item');
+            if (item) {
+                selectLocation(item);
+            }
+        };
 
     } catch (error) {
         console.error('Search error:', error);
@@ -602,6 +776,8 @@ function selectLocation(item) {
 }
 
 function initMainMap() {
+    if (!document.getElementById('main-map')) return;
+    
     mainMap = L.map('main-map').setView(INDIA_CENTER, 5);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -634,8 +810,8 @@ function renderMainMap() {
             const marker = L.marker([issue.lat, issue.lng], { icon }).addTo(mainMap);
             marker.bindPopup(`
                 <div class="map-popup">
-                    <strong>${issue.type}</strong>
-                    <p>${issue.location}</p>
+                    <strong>${sanitizeHTML(issue.type)}</strong>
+                    <p>${sanitizeHTML(issue.location)}</p>
                     <span class="status-badge status-${issue.status.replace(' ', '-')}">${issue.status}</span>
                 </div>
             `);
@@ -656,9 +832,13 @@ function renderMainMap() {
 
 function renderHome() {
     // Stats
-    document.getElementById('total-issues').textContent = STATE.issues.length;
-    document.getElementById('progress-issues').textContent = STATE.issues.filter(i => i.status === 'in-progress').length;
-    document.getElementById('solved-issues').textContent = STATE.issues.filter(i => i.status === 'solved').length;
+    const totalIssues = document.getElementById('total-issues');
+    const progressIssues = document.getElementById('progress-issues');
+    const solvedIssues = document.getElementById('solved-issues');
+    
+    if (totalIssues) totalIssues.textContent = STATE.issues.length;
+    if (progressIssues) progressIssues.textContent = STATE.issues.filter(i => i.status === 'in-progress').length;
+    if (solvedIssues) solvedIssues.textContent = STATE.issues.filter(i => i.status === 'solved').length;
 
     // Filter Logic
     const filteredIssues = STATE.filter === 'all'
@@ -667,14 +847,22 @@ function renderHome() {
 
     // Render Grid
     const feed = document.getElementById('issue-feed');
-    feed.innerHTML = filteredIssues.length ? filteredIssues.map(issue => `
+    if (!feed) return;
+    
+    feed.innerHTML = filteredIssues.length ? filteredIssues.map(issue => {
+        const safeDescription = sanitizeHTML(issue.description);
+        const safeLocation = sanitizeHTML(issue.location);
+        const safeType = sanitizeHTML(issue.type);
+        const safeReporterName = issue.reporter_name ? sanitizeHTML(issue.reporter_name) : null;
+        
+        return `
         <div class="issue-card" onclick="viewIssue('${issue.id}')">
             <div class="card-img" style="background: url('${issue.image || 'https://images.unsplash.com/photo-1598228723793-52759bba239c?q=80&w=400&auto=format&fit=crop'}') center/cover no-repeat;"></div>
             <div class="card-body">
                 <span class="status-badge status-${issue.status.replace(' ', '-')}">${issue.status}</span>
-                <h3 class="card-title">${issue.type}</h3>
+                <h3 class="card-title">${safeType}</h3>
                 <div class="card-info">
-                    <i class="ri-map-pin-line"></i> ${issue.location}
+                    <i class="ri-map-pin-line"></i> ${safeLocation}
                 </div>
                 ${issue.lat ? `
                     <div class="card-info">
@@ -686,15 +874,16 @@ function renderHome() {
                 <div class="card-info">
                     <i class="ri-calendar-line"></i> ${formatDate(issue.date)}
                 </div>
-                ${issue.reporter_name ? `
+                ${safeReporterName ? `
                     <div class="card-info">
-                        <i class="ri-user-line"></i> Reported by ${issue.reporter_name}
+                        <i class="ri-user-line"></i> Reported by ${safeReporterName}
                     </div>
                 ` : ''}
-                <p class="card-desc">${issue.description}</p>
+                <p class="card-desc">${safeDescription}</p>
             </div>
         </div>
-    `).join('') : '<p class="empty-message">No issues found matching criteria.</p>';
+    `;
+    }).join('') : '<p class="empty-message">No issues found matching criteria.</p>';
 }
 
 function viewIssue(id) {
@@ -702,11 +891,13 @@ function viewIssue(id) {
     if (issue && issue.lat) {
         window.location.hash = '#map';
         setTimeout(() => {
-            mainMap.setView([issue.lat, issue.lng], 16);
-            const marker = issueMarkers.find(m =>
-                m.getLatLng().lat === issue.lat && m.getLatLng().lng === issue.lng
-            );
-            if (marker) marker.openPopup();
+            if (mainMap) {
+                mainMap.setView([issue.lat, issue.lng], 16);
+                const marker = issueMarkers.find(m =>
+                    m.getLatLng().lat === issue.lat && m.getLatLng().lng === issue.lng
+                );
+                if (marker) marker.openPopup();
+            }
         }, 300);
     }
 }
@@ -733,6 +924,25 @@ const imagePreview = document.getElementById('image-preview');
 imageInput?.addEventListener('change', function () {
     if (this.files && this.files[0]) {
         const file = this.files[0];
+        
+        // Validate file size (5MB max)
+        const maxSize = 5 * 1024 * 1024; // 5MB
+        if (file.size > maxSize) {
+            showToast('Image too large. Maximum 5MB allowed.', 'warning');
+            this.value = '';
+            fileNameDisplay.textContent = 'No file selected';
+            return;
+        }
+        
+        // Validate file type
+        const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+        if (!validTypes.includes(file.type)) {
+            showToast('Invalid file type. Please upload an image.', 'warning');
+            this.value = '';
+            fileNameDisplay.textContent = 'No file selected';
+            return;
+        }
+        
         fileNameDisplay.textContent = file.name;
 
         const reader = new FileReader();
@@ -740,6 +950,9 @@ imageInput?.addEventListener('change', function () {
             currentImageBase64 = e.target.result;
             imagePreview.innerHTML = `<img src="${currentImageBase64}" alt="Preview">`;
             imagePreview.classList.remove('hidden');
+        };
+        reader.onerror = () => {
+            showToast('Error reading file', 'danger');
         };
         reader.readAsDataURL(file);
     }
@@ -768,34 +981,50 @@ document.getElementById('report-form')?.addEventListener('submit', async (e) => 
     };
 
     try {
-        const res = await fetch(`${API_URL}/issues`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newIssue)
-        });
+        if (IS_DEMO_MODE) {
+            // Demo mode logic
+            newIssue.id = 'i' + Date.now();
+            newIssue.reporter_name = STATE.currentUser?.username || 'Anonymous';
+            newIssue.status = 'pending';
+            newIssue.points_awarded = 0;
 
-        if (res.ok) {
-            showToast('Issue reported successfully!', 'success');
-            document.getElementById('report-form').reset();
-            currentImageBase64 = null;
-            if (pickerMarker) {
-                pickerMap.removeLayer(pickerMarker);
-                pickerMarker = null;
-            }
-            fileNameDisplay.textContent = 'No file selected';
-            imagePreview.classList.add('hidden');
-            imagePreview.innerHTML = '';
-
-            if (!STATE.currentUser) {
-                showToast('Login to earn points for your reports!', 'info');
-            }
-
-            setTimeout(() => window.location.hash = '#home', 1000);
+            STATE.issues.unshift(newIssue);
+            saveDemoData();
+            
+            showToast('Issue reported! (Demo mode - saved locally)', 'success');
         } else {
-            showToast('Failed to submit report', 'danger');
+            // Server mode logic
+            const res = await fetch(`${API_URL}/issues`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newIssue)
+            });
+
+            if (!res.ok) {
+                throw new Error('Failed to submit report');
+            }
+            
+            showToast('Issue reported successfully!', 'success');
         }
+
+        // Common cleanup logic
+        document.getElementById('report-form').reset();
+        currentImageBase64 = null;
+        if (pickerMarker) {
+            pickerMap.removeLayer(pickerMarker);
+            pickerMarker = null;
+        }
+        fileNameDisplay.textContent = 'No file selected';
+        imagePreview.classList.add('hidden');
+        imagePreview.innerHTML = '';
+
+        if (!STATE.currentUser) {
+            showToast('Login to earn points for your reports!', 'info');
+        }
+
+        setTimeout(() => window.location.hash = '#home', 1000);
     } catch (err) {
-        showToast('Server error', 'danger');
+        showToast('Failed to submit report', 'danger');
         console.error(err);
     }
 });
@@ -818,8 +1047,8 @@ function renderLeaderboard() {
                 <div class="rank">${medal || rank}</div>
                 <div class="avatar">${user.username.charAt(0).toUpperCase()}</div>
                 <div class="user-info">
-                    <h4>${user.username} ${isMe ? '(You)' : ''}</h4>
-                    <p>${user.total_reports} reports · ${user.solved_reports} solved</p>
+                    <h4>${sanitizeHTML(user.username)} ${isMe ? '(You)' : ''}</h4>
+                    <p>${user.total_reports || 0} reports · ${user.solved_reports || 0} solved</p>
                 </div>
                 <div class="points">
                     <i class="ri-coin-fill"></i>
@@ -837,8 +1066,8 @@ function renderRewards() {
     container.innerHTML = STATE.rewards.map(reward => `
         <div class="reward-card">
             <span class="reward-icon">${reward.icon}</span>
-            <h4>${reward.name}</h4>
-            <p>${reward.description}</p>
+            <h4>${sanitizeHTML(reward.name)}</h4>
+            <p>${sanitizeHTML(reward.description)}</p>
             <div class="reward-points">
                 <i class="ri-coin-fill"></i> ${reward.points_required} pts
             </div>
@@ -893,7 +1122,8 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
 
         tab.classList.add('active');
         const tabName = tab.dataset.tab;
-        document.getElementById(`admin-${tabName}-tab`).classList.add('active');
+        const tabContent = document.getElementById(`admin-${tabName}-tab`);
+        if (tabContent) tabContent.classList.add('active');
 
         if (tabName === 'users') fetchAdminUsers();
     });
@@ -906,9 +1136,9 @@ function renderAdminTable() {
     tbody.innerHTML = STATE.issues.map(issue => `
         <tr>
             <td><small class="id-badge">${issue.id.substr(0, 6)}</small></td>
-            <td>${issue.type}</td>
-            <td>${issue.location}</td>
-            <td>${issue.reporter_name || 'Anonymous'}</td>
+            <td>${sanitizeHTML(issue.type)}</td>
+            <td>${sanitizeHTML(issue.location)}</td>
+            <td>${sanitizeHTML(issue.reporter_name || 'Anonymous')}</td>
             <td>${formatDate(issue.date)}</td>
             <td><span class="status-badge status-${issue.status.replace(' ', '-')}">${issue.status}</span></td>
             <td>${issue.points_awarded || 0} pts</td>
@@ -936,31 +1166,39 @@ function renderAdminUsers(users) {
 
     tbody.innerHTML = users.map(user => `
         <tr>
-            <td><strong>${user.username}</strong></td>
-            <td>${user.email}</td>
+            <td><strong>${sanitizeHTML(user.username)}</strong></td>
+            <td>${sanitizeHTML(user.email)}</td>
             <td><span class="points-badge"><i class="ri-coin-fill"></i> ${user.points}</span></td>
-            <td>${user.total_reports}</td>
+            <td>${user.total_reports || 0}</td>
             <td>${formatDate(user.created_at)}</td>
         </tr>
     `).join('') || '<tr><td colspan="5" class="empty-message">No users registered yet.</td></tr>';
 }
 
 async function populateRewardSelects() {
-    // Populate user select
-    const userSelect = document.getElementById('reward-user-select');
-    const users = await (await fetch(`${API_URL}/admin/users`)).json();
-    userSelect.innerHTML = '<option value="">Select a user...</option>' +
-        users.map(u => `<option value="${u.id}">${u.username} (${u.points} pts)</option>`).join('');
+    try {
+        // Populate user select
+        const userSelect = document.getElementById('reward-user-select');
+        if (!userSelect) return;
+        
+        const users = await (await fetch(`${API_URL}/admin/users`)).json();
+        userSelect.innerHTML = '<option value="">Select a user...</option>' +
+            users.map(u => `<option value="${u.id}">${sanitizeHTML(u.username)} (${u.points} pts)</option>`).join('');
 
-    // Populate reward select
-    const rewardSelect = document.getElementById('reward-select');
-    rewardSelect.innerHTML = '<option value="">Select a reward...</option>' +
-        STATE.rewards.map(r => `<option value="${r.id}">${r.icon} ${r.name} (${r.points_required} pts)</option>`).join('');
+        // Populate reward select
+        const rewardSelect = document.getElementById('reward-select');
+        if (!rewardSelect) return;
+        
+        rewardSelect.innerHTML = '<option value="">Select a reward...</option>' +
+            STATE.rewards.map(r => `<option value="${r.id}">${r.icon} ${sanitizeHTML(r.name)} (${r.points_required} pts)</option>`).join('');
+    } catch (e) {
+        console.error('Error populating reward selects:', e);
+    }
 }
 
 async function giveReward() {
-    const userId = document.getElementById('reward-user-select').value;
-    const rewardId = document.getElementById('reward-select').value;
+    const userId = document.getElementById('reward-user-select')?.value;
+    const rewardId = document.getElementById('reward-select')?.value;
 
     if (!userId || !rewardId) {
         showToast('Please select a user and reward', 'warning');
@@ -1028,15 +1266,21 @@ window.deleteIssue = async (id) => {
 
 const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-IN', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-    });
+    try {
+        return new Date(dateString).toLocaleDateString('en-IN', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+    } catch (e) {
+        return 'N/A';
+    }
 };
 
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
+    if (!container) return;
+    
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
 
@@ -1046,7 +1290,7 @@ function showToast(message, type = 'info') {
 
     toast.innerHTML = `
         <i class="ri-${icon}-fill"></i>
-        <span>${message}</span>
+        <span>${sanitizeHTML(message)}</span>
     `;
     container.appendChild(toast);
 
@@ -1059,6 +1303,8 @@ function showToast(message, type = 'info') {
 function showPointsAnimation(points) {
     const popup = document.getElementById('points-popup');
     const valueEl = document.getElementById('points-value');
+    if (!popup || !valueEl) return;
+    
     valueEl.textContent = points;
     popup.classList.remove('hidden');
     popup.classList.add('animate');
@@ -1093,6 +1339,27 @@ window.viewIssue = viewIssue;
 window.closeMobileMenu = closeMobileMenu;
 
 // ============================================
+// MOBILE ACCOUNT MENU
+// ============================================
+
+// Mobile account button handler
+document.getElementById('mobile-account-btn')?.addEventListener('click', () => {
+    const menu = document.getElementById('mobile-account-menu');
+    if (menu) {
+        menu.classList.toggle('hidden');
+        menu.classList.toggle('active');
+    }
+});
+
+function closeMobileMenu() {
+    const menu = document.getElementById('mobile-account-menu');
+    if (menu) {
+        menu.classList.add('hidden');
+        menu.classList.remove('active');
+    }
+}
+
+// ============================================
 // DEMO MODE (For GitHub Pages)
 // ============================================
 
@@ -1108,13 +1375,23 @@ function loadDemoData() {
     // Load issues from localStorage
     const savedIssues = localStorage.getItem('cityfix_issues');
     if (savedIssues) {
-        STATE.issues = JSON.parse(savedIssues);
+        try {
+            STATE.issues = JSON.parse(savedIssues);
+        } catch (e) {
+            console.error('Error loading demo issues:', e);
+            STATE.issues = [];
+        }
     }
 
     // Load users from localStorage
     const savedUsers = localStorage.getItem('cityfix_users');
     if (savedUsers) {
-        STATE.users = JSON.parse(savedUsers);
+        try {
+            STATE.users = JSON.parse(savedUsers);
+        } catch (e) {
+            console.error('Error loading demo users:', e);
+            STATE.users = [];
+        }
     }
 
     // Use default rewards
@@ -1122,175 +1399,24 @@ function loadDemoData() {
 }
 
 function saveDemoData() {
-    localStorage.setItem('cityfix_issues', JSON.stringify(STATE.issues));
-    localStorage.setItem('cityfix_users', JSON.stringify(STATE.users));
+    try {
+        localStorage.setItem('cityfix_issues', JSON.stringify(STATE.issues));
+        localStorage.setItem('cityfix_users', JSON.stringify(STATE.users));
+    } catch (e) {
+        console.error('Error saving demo data:', e);
+    }
 }
 
-// Override fetch functions for demo mode
-const originalFetchIssues = fetchIssues;
-fetchIssues = async function () {
-    if (IS_DEMO_MODE) {
-        loadDemoData();
-        renderHome();
-        return;
-    }
-    return originalFetchIssues();
-};
-
-const originalFetchLeaderboard = fetchLeaderboard;
-fetchLeaderboard = async function () {
-    if (IS_DEMO_MODE) {
-        renderLeaderboard();
-        return;
-    }
-    return originalFetchLeaderboard();
-};
-
-const originalFetchRewards = fetchRewards;
-fetchRewards = async function () {
-    if (IS_DEMO_MODE) {
-        STATE.rewards = DEMO_REWARDS;
-        renderRewards();
-        return;
-    }
-    return originalFetchRewards();
-};
-
 // ============================================
-// MOBILE ACCOUNT MENU
+// GLOBAL ERROR HANDLERS
 // ============================================
 
-// Mobile account button handler
-document.getElementById('mobile-account-btn')?.addEventListener('click', () => {
-    const menu = document.getElementById('mobile-account-menu');
-    menu.classList.toggle('hidden');
-    menu.classList.toggle('active');
+window.addEventListener('error', (e) => {
+    console.error('Global error:', e.error);
+    showToast('An unexpected error occurred. Please refresh the page.', 'danger');
 });
 
-function closeMobileMenu() {
-    const menu = document.getElementById('mobile-account-menu');
-    menu.classList.add('hidden');
-    menu.classList.remove('active');
-}
-
-// Update mobile UI when user state changes
-function updateMobileUserUI() {
-    const guestContent = document.getElementById('mobile-guest-content');
-    const userContent = document.getElementById('mobile-user-content');
-
-    if (!guestContent || !userContent) return;
-
-    if (STATE.currentUser) {
-        guestContent.classList.add('hidden');
-        userContent.classList.remove('hidden');
-        document.getElementById('mobile-user-name').textContent = STATE.currentUser.username;
-        document.getElementById('mobile-user-points').textContent = STATE.currentUser.points;
-        document.getElementById('mobile-user-avatar').textContent = STATE.currentUser.username.charAt(0).toUpperCase();
-    } else {
-        guestContent.classList.remove('hidden');
-        userContent.classList.add('hidden');
-    }
-}
-
-// Override updateUserUI to also update mobile
-const originalUpdateUserUI = updateUserUI;
-updateUserUI = function () {
-    originalUpdateUserUI();
-    updateMobileUserUI();
-};
-
-// Demo mode: Override form submission
-if (IS_DEMO_MODE) {
-    document.addEventListener('DOMContentLoaded', () => {
-        // Register form
-        document.getElementById('register-form')?.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const username = document.getElementById('register-username').value;
-            const email = document.getElementById('register-email').value;
-
-            const newUser = {
-                id: 'u' + Date.now(),
-                username,
-                email,
-                points: 0,
-                total_reports: 0,
-                solved_reports: 0
-            };
-
-            STATE.users.push(newUser);
-            STATE.currentUser = newUser;
-            localStorage.setItem('cityfix_user', JSON.stringify(newUser));
-            saveDemoData();
-
-            updateUserUI();
-            hideModal('register');
-            showToast(`Welcome to CityFix, ${username}!`, 'success');
-        });
-
-        // Login form
-        document.getElementById('login-form')?.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('login-email').value;
-
-            let user = STATE.users.find(u => u.email === email);
-            if (!user) {
-                user = {
-                    id: 'u' + Date.now(),
-                    username: email.split('@')[0],
-                    email,
-                    points: 0,
-                    total_reports: 0,
-                    solved_reports: 0
-                };
-                STATE.users.push(user);
-                saveDemoData();
-            }
-
-            STATE.currentUser = user;
-            localStorage.setItem('cityfix_user', JSON.stringify(user));
-            updateUserUI();
-            hideModal('login');
-            showToast(`Welcome back, ${user.username}!`, 'success');
-        });
-
-        // Report form
-        document.getElementById('report-form')?.addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const lat = document.getElementById('issue-lat').value;
-            const lng = document.getElementById('issue-lng').value;
-
-            if (!lat || !lng) {
-                showToast('Please select a location on the map', 'warning');
-                return;
-            }
-
-            const newIssue = {
-                id: 'i' + Date.now(),
-                user_id: STATE.currentUser?.id || null,
-                reporter_name: STATE.currentUser?.username || 'Anonymous',
-                type: document.getElementById('issue-type').value,
-                location: document.getElementById('issue-location').value,
-                lat: parseFloat(lat),
-                lng: parseFloat(lng),
-                description: document.getElementById('issue-desc').value,
-                image: currentImageBase64,
-                date: new Date().toISOString(),
-                status: 'pending',
-                points_awarded: 0
-            };
-
-            STATE.issues.unshift(newIssue);
-            saveDemoData();
-
-            showToast('Issue reported! (Demo mode - saved locally)', 'success');
-            document.getElementById('report-form').reset();
-            if (pickerMarker) {
-                pickerMap.removeLayer(pickerMarker);
-                pickerMarker = null;
-            }
-
-            setTimeout(() => window.location.hash = '#home', 1000);
-        });
-    });
-}
+window.addEventListener('unhandledrejection', (e) => {
+    console.error('Unhandled promise rejection:', e.reason);
+    showToast('An unexpected error occurred. Please refresh the page.', 'danger');
+});
